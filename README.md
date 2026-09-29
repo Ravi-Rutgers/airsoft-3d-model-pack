@@ -1,10 +1,9 @@
 # Airsoft 3D Model Pack
 
-20 real GLB files sourced from the Flat Guns West/East packs. These are generic comparable assets, not verified exact replicas of named manufacturers/models.
+Verified collection: 34 real GLB files.
 
-Source: https://github.com/petroulacl/fps-asset-kit
-License: CC0-1.0 according to the source repository.
-Commercial use: permitted according to the source repository.
-Attribution: not required by CC0.
+Classification note: the pack deliberately separates generic comparable assets from exact manufacturer models. The Quaternius entries below are silhouette/gameplay mappings, not manufacturer-authenticated replicas.
 
-Use models.json as the Three.js/WebGL index and load each model path with GLTFLoader.
+CC0 provenance is preserved in models.json. Sources used include Flat Guns/OpenGameArt, Quaternius Ultimate Guns through Operation Steel Tide, and the CC0-Public-Domain-Models mirror.
+
+Three.js: use GLTFLoader and the modelFile value in models.json.
