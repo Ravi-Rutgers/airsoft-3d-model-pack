@@ -12,28 +12,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout pack repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download CC0 weapon models
+      - name: Assemble package
         shell: bash
         run: |
           set -euo pipefail
-          rm -rf source_pack
-          git clone --depth 1 --filter=blob:none --sparse https://github.com/petroulacl/fps-asset-kit.git source_pack
-          cd source_pack
-          git sparse-checkout set weapons
-          cd ..
-          mkdir -p airsoft_3d_model_pack/models
+          rm -rf airsoft_3d_model_pack
+          mkdir -p airsoft_3d_model_pack
+          cp -R models airsoft_3d_model_pack/models
+          cp models.json airsoft_3d_model_pack/models.json
+          cp README.md airsoft_3d_model_pack/README.md
+          mkdir -p airsoft_3d_model_pack/LICENSES
+          cp LICENSES/*.md airsoft_3d_model_pack/LICENSES/ || true
 
-          find source_pack/weapons -type f -iname '*.glb' -print0 | while IFS= read -r -d '' f; do
-            base="$(basename "$f" .glb)"
-            safe_id="$(echo "$base" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/_/g')"
-            mkdir -p "airsoft_3d_model_pack/models/$safe_id"
-            cp "$f" "airsoft_3d_model_pack/models/$safe_id/model.glb"
-          done
-
-      - name: Create metadata and index
+      - name: Generate per-model metadata and validate
         shell: bash
         run: |
           set -euo pipefail
@@ -42,80 +36,37 @@ jobs:
           from pathlib import Path
 
           root = Path("airsoft_3d_model_pack")
-          models = []
-
-          for model in sorted((root / "models").glob("*/model.glb")):
-              model_id = model.parent.name
-              raw = model.read_bytes()
-              parts = model_id.split("_")
-              name = " ".join(p.capitalize() for p in parts)
-              lower = model_id.lower()
-              if "pistol" in lower:
-                  category, typ = "pistols", "pistol"
-              elif "smg" in lower:
-                  category, typ = "smgs", "smg"
-              elif "rifle" in lower:
-                  category, typ = "rifles", "rifle"
-              elif "shotgun" in lower:
-                  category, typ = "shotguns", "shotgun"
-              elif "sniper" in lower:
-                  category, typ = "snipers", "sniper"
-              else:
-                  category, typ = "other", "other"
-
-              meta = {
-                  "name": name,
-                  "manufacturer": None,
-                  "type": typ,
-                  "category": category,
-                  "modelFile": f"models/{model_id}/model.glb",
-                  "accuracy": "generic_comparable",
-                  "source": "https://github.com/petroulacl/fps-asset-kit",
-                  "license": "CC0",
-                  "author": "Flat Guns / OpenGameArt contributors (as credited by source repository)",
-                  "commercialUse": True,
-                  "attributionRequired": False,
-                  "originalFormat": "GLB",
-                  "convertedToGLB": False,
-                  "sha256": hashlib.sha256(raw).hexdigest(),
-                  "fileSizeBytes": len(raw)
-              }
-              (model.parent / "metadata.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-              models.append({"id": model_id, **meta})
-
-          (root / "models.json").write_text(json.dumps(models, indent=2), encoding="utf-8")
-          (root / "README.md").write_text(
-              "# Airsoft 3D Model Pack\n\n"
-              "Build contains real GLB weapon assets suitable as generic comparable models for Three.js/WebGL previews.\n\n"
-              f"Model count: {len(models)}\n\n"
-              "Source: https://github.com/petroulacl/fps-asset-kit\n"
-              "License: CC0 according to the source repository.\n"
-              "Exact real-world manufacturer/model identification is not claimed for these assets.\n",
-              encoding="utf-8"
-          )
-
-          print(f"Collected {len(models)} GLB models")
-          PY
-
-      - name: Validate files
-        shell: bash
-        run: |
-          set -euo pipefail
-          count="$(find airsoft_3d_model_pack/models -type f -name 'model.glb' | wc -l)"
-          test "$count" -gt 0
-          while IFS= read -r f; do
-            test -s "$f"
-          done < <(find airsoft_3d_model_pack/models -type f -name 'model.glb')
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          root = Path("airsoft_3d_model_pack")
           data = json.loads((root / "models.json").read_text())
-          assert data
+          models_dir = root / "models"
+
+          # Validate index entries and generate per-model metadata.
           for item in data:
               p = root / item["modelFile"]
-              assert p.exists() and p.stat().st_size > 0
-          print("Validation OK")
+              if not p.exists() or p.stat().st_size == 0:
+                  raise SystemExit(f"Missing model: {p}")
+              raw = p.read_bytes()
+              if raw[:4] != b"glTF":
+                  raise SystemExit(f"Invalid GLB header: {p}")
+              item["sha256"] = hashlib.sha256(raw).hexdigest()
+              item["fileSizeBytes"] = len(raw)
+              meta = dict(item)
+              meta.pop("thumbnail", None)
+              (p.parent / "metadata.json").write_text(
+                  json.dumps(meta, indent=2) + "\n", encoding="utf-8"
+              )
+
+          (root / "models.json").write_text(
+              json.dumps(data, indent=2) + "\n", encoding="utf-8"
+          )
+
+          count = len(list(models_dir.rglob("model.glb")))
+          if count != len(data):
+              raise SystemExit(f"Index/model mismatch: {len(data)} vs {count}")
+
+          if count < 30:
+              raise SystemExit(f"Expected at least 30 models, found {count}")
+
+          print(f"Validated {count} GLB models")
           PY
 
       - name: Package ZIP
@@ -123,7 +74,7 @@ jobs:
         run: |
           set -euo pipefail
           cd airsoft_3d_model_pack
-          zip -r ../airsoft_3d_model_pack.zip .
+          zip -qr ../airsoft_3d_model_pack.zip .
           cd ..
           ls -lh airsoft_3d_model_pack.zip
 
